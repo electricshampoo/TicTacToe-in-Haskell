@@ -1,9 +1,10 @@
 import Data.List (intercalate, find)
 import Data.Maybe (isJust)
-import System.IO
-import Data.Word
-import Control.Monad.Trans.State.Strict
-import Control.Monad.IO.Class
+import System.IO (hSetBuffering, BufferMode(NoBuffering, LineBuffering), stdin, stdout)
+import Data.Word (Word)
+import Data.Char (digitToInt)
+import Control.Monad.Trans.State.Strict (StateT, get, modify', execStateT)
+import Control.Monad.IO.Class (liftIO)
 
 data Player = X | O
     deriving (Eq, Show)
@@ -56,6 +57,7 @@ getItem :: Word -> Triple a -> a
 getItem 0 (Triple a _ _) = a
 getItem 1 (Triple _ b _) = b
 getItem 2 (Triple _ _ c) = c
+getItem n _ = error $ "This cannot happen: getItem " ++ show n
 
 index :: (Word, Word) -> Board -> Maybe Player
 index (r,c) = getItem c . getItem r
@@ -66,6 +68,7 @@ place (row,col) player board = placeRow (placeRow (Just player) col (getItem row
         placeRow x 0 (Triple _ b c) = Triple x b c
         placeRow x 1 (Triple a _ c) = Triple a x c
         placeRow x 2 (Triple a b _) = Triple a b x
+        placeRow _ n _ = error $ "This cannot happen: placeRow " ++ show n
 
 analyze :: Board -> GameState
 analyze board = case winner board of
@@ -75,13 +78,21 @@ analyze board = case winner board of
 getPlayerInput :: Player -> StateT Board IO ()
 getPlayerInput player = do
     board <- get
-    liftIO $ printBoard board
-    liftIO $ putStr $ "Player " ++ show player ++ " enter position: "
+    liftIO . printBoard $ board
+    liftIO . putStr $ "Player " ++ show player ++ " enter position (row column): "
     line <- liftIO getLine
-    let r = (read line !! 0)
-        c = (read line !! 2)
-    --TODO: check if already taken
-    modify' (place (r,c) player)
+    let r = fromIntegral . digitToInt $ line !! 0 :: Word
+        c = fromIntegral . digitToInt $ line !! 2 :: Word
+    if r > 2 || c > 2 
+    then do
+        liftIO . putStrLn $ "Indicies have to be in the range [0,2]"
+        getPlayerInput player
+    else if isJust $ index (r,c) board
+         then do
+             liftIO . putStrLn $ "This spot is already taken. Try again."
+             getPlayerInput player
+         else modify' $ place (r,c) player 
+
 
 runGameIteration :: StateT Board IO ()
 runGameIteration = do
