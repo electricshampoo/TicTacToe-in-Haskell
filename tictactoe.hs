@@ -76,35 +76,40 @@ analyze board = case winner board of
     Just player -> Winner player
     Nothing -> if allFilled board then Tie else Unfinished
 
-getPlayerInput :: Player -> StateT Board IO ()
-getPlayerInput player = do
-    board <- get
-    liftIO . printBoard $ board
-    liftIO . putStr $ "Player " ++ show player ++ " enter position (row column): "
-    line <- liftIO getLine
+getPlayerInput :: Board -> Player -> IO (Word,Word)
+getPlayerInput board player = do
+    printBoard board
+    putStr $ "Player " ++ show player ++ " enter position (row column): "
+    line <- getLine
 
     let r = fromIntegral . digitToInt $ line !! 0 :: Word
         c = fromIntegral . digitToInt $ line !! 2 :: Word
 
     if r > 2 || c > 2
     then do
-        liftIO . putStrLn $ "Indicies have to be in the range [0,2]"
-        getPlayerInput player
+        putStrLn $ "Indicies have to be in the range [0,2]"
+        getPlayerInput board player
     else if isJust $ index (r,c) board
          then do
-             liftIO . putStrLn $ "This spot is already taken. Try again."
-             getPlayerInput player
-         else modify' $ place (r,c) player
+             putStrLn $ "This spot is already taken. Try again."
+             getPlayerInput board player
+         else return $! (r,c)
+
+placePlayer :: Player -> StateT Board IO ()
+placePlayer player = do
+    board <- get
+    (r,c) <- liftIO $ getPlayerInput board player
+    modify' $ place (r,c) player
 
 runGame :: StateT Board IO ()
 runGame = do
-    getPlayerInput X
+    placePlayer X
     board <- get
     case analyze board of
         Winner _ -> liftIO $ putStrLn "Congrats player X. You won!"
         Tie -> liftIO $ putStrLn "The game was a tie."
         Unfinished -> do
-            getPlayerInput O
+            placePlayer O
             board' <- get
             case analyze board' of
                 Winner _ -> liftIO $ putStrLn "Congrats player O. You won!"
