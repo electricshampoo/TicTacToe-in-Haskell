@@ -1,1 +1,1 @@
-Simple tictactoe game in haskell.
+Simple tictactoe game in haskell with AI.

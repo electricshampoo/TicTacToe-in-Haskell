@@ -51,12 +51,6 @@ triplets = [Triple (0,0) (0,1) (0,2)
            ,Triple (0,2) (1,1) (2,0)
            ]
 
-allSpots :: [Index]
-allSpots = nub $ concatMap toList triplets
-
-openSpots :: Board -> [Index]
-openSpots board = filter (\x -> isNothing $ index x board) allSpots
-
 printBoard :: Board -> IO ()
 printBoard = putStrLn . intercalate "\n" . toList . fmap (toList . printRow)
     where printSlot (Just X) = 'X'
@@ -109,27 +103,33 @@ placePlayer X = do
     board <- get
     (r,c) <- liftIO $ getPlayerInput board X
     modify' $ place (r,c) X
+
 placePlayer O = do
     board <- get
-    modify' $ place (suggestMove O board) O
+    modify' $ place (suggestMove O board) O where
 
-suggestMove :: Player -> Board -> Index
-suggestMove player board = case winningPositions player board of
-    x:_ -> x
-    [] -> case winningPositions (otherPlayer player) board of
+    suggestMove player board = case winningPositions player board of
         x:_ -> x
-        --Go in the middle whenever you can. This is a guaranteed tie unless the
-        --human messes up.
-        [] ->  if isNothing $ index (1,1) board then (1,1) else head $ openSpots board
-    where
-        otherPlayer X = O
-        otherPlayer O = X
-        
-winningPositions :: Player -> Board -> [Index]
-winningPositions player board = map fst . filter f . map (\x -> (x, place x player board)) . openSpots $ board where
-    f (_, board) = case analyze board of
-        Winner _ -> True
-        _ -> False
+        [] -> case winningPositions (otherPlayer player) board of
+            x:_ -> x
+            --Go in the middle whenever you can. This is a guaranteed tie unless the
+            --other person messes up.
+            --
+            --Using head is safe here because if the board was full then we wouldn't
+            --have called this function.
+            [] ->  if isNothing $ index (1,1) board then (1,1) else head $ openSpots board
+        where
+            otherPlayer X = O
+            otherPlayer O = X
+
+    winningPositions player board = map fst . filter f . map (\x -> (x, place x player board)) . openSpots $ board where
+        f (_, board') = case analyze board' of
+            Winner _ -> True
+            _ -> False
+
+    allSpots = nub $ concatMap toList triplets
+
+    openSpots board = filter (\x -> isNothing $ index x board) allSpots
 
 runGame :: StateT Board IO ()
 runGame = do
