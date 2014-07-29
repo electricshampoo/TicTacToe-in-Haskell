@@ -1,5 +1,5 @@
-import Data.List (intercalate, find)
-import Data.Maybe (isJust)
+import Data.List (intercalate, find, nub)
+import Data.Maybe (isJust, isNothing)
 import System.IO (hSetBuffering, BufferMode(NoBuffering, LineBuffering), stdin, stdout)
 import Data.Word (Word)
 import Data.Char (digitToInt)
@@ -11,10 +11,14 @@ data Player = X | O
 
 data Triple a = Triple a a a
 
+toList :: Triple a -> [a]
+toList (Triple a b c) = [a,b,c]
+
 instance Functor Triple where
     fmap f (Triple a b c) = Triple (f a) (f b) (f c)
 
 type Board = Triple (Triple (Maybe Player))
+type Index = (Word, Word)
 
 data GameState = Winner Player | Unfinished | Tie
 
@@ -36,7 +40,7 @@ winner board = join . find isJust . map allSame $ map (fmap $ flip index board) 
           join Nothing = Nothing
 
 --all the rows/columns/diagonals in which to check for a winner
-triplets :: [Triple (Word,Word)]
+triplets :: [Triple Index]
 triplets = [Triple (0,0) (0,1) (0,2)
            ,Triple (1,0) (1,1) (1,2)
            ,Triple (2,0) (2,1) (2,2)
@@ -47,13 +51,18 @@ triplets = [Triple (0,0) (0,1) (0,2)
            ,Triple (0,2) (1,1) (2,0)
            ]
 
+allSpots :: [Index]
+allSpots = nub $ concatMap toList triplets
+
+openSpots :: Board -> [Index]
+openSpots board = filter (\x -> isNothing $ index x board) allSpots
+
 printBoard :: Board -> IO ()
 printBoard = putStrLn . intercalate "\n" . toList . fmap (toList . printRow)
     where printSlot (Just X) = 'X'
           printSlot (Just O) = 'O'
           printSlot Nothing  = 'E'
           printRow  = fmap printSlot
-          toList (Triple a b c) = [a,b,c]
 
 getItem :: Word -> Triple a -> a
 getItem 0 (Triple a _ _) = a
@@ -61,10 +70,10 @@ getItem 1 (Triple _ b _) = b
 getItem 2 (Triple _ _ c) = c
 getItem n _ = error $ "This cannot happen: getItem " ++ show n
 
-index :: (Word, Word) -> Board -> Maybe Player
+index :: Index -> Board -> Maybe Player
 index (r,c) = getItem c . getItem r
 
-place :: (Word, Word) -> Player -> Board -> Board
+place :: Index -> Player -> Board -> Board
 place (row,col) player board = placeRow (placeRow (Just player) col (getItem row board)) row board
     where placeRow x 0 (Triple _ b c) = Triple x b c
           placeRow x 1 (Triple a _ c) = Triple a x c
@@ -76,7 +85,7 @@ analyze board = case winner board of
     Just player -> Winner player
     Nothing -> if allFilled board then Tie else Unfinished
 
-getPlayerInput :: Board -> Player -> IO (Word,Word)
+getPlayerInput :: Board -> Player -> IO Index
 getPlayerInput board player = do
     printBoard board
     putStr $ "Player " ++ show player ++ " enter position (row column): "
@@ -96,10 +105,31 @@ getPlayerInput board player = do
          else return $! (r,c)
 
 placePlayer :: Player -> StateT Board IO ()
-placePlayer player = do
+placePlayer X = do
     board <- get
-    (r,c) <- liftIO $ getPlayerInput board player
-    modify' $ place (r,c) player
+    (r,c) <- liftIO $ getPlayerInput board X
+    modify' $ place (r,c) X
+placePlayer O = do
+    board <- get
+    modify' $ place (suggestMove O board) O
+
+suggestMove :: Player -> Board -> Index
+suggestMove player board = case winningPositions player board of
+    x:_ -> x
+    [] -> case winningPositions (otherPlayer player) board of
+        x:_ -> x
+        --Go in the middle whenever you can. This is a guaranteed tie unless the
+        --human messes up.
+        [] ->  if isNothing $ index (1,1) board then (1,1) else head $ openSpots board
+    where
+        otherPlayer X = O
+        otherPlayer O = X
+        
+winningPositions :: Player -> Board -> [Index]
+winningPositions player board = map fst . filter f . map (\x -> (x, place x player board)) . openSpots $ board where
+    f (_, board) = case analyze board of
+        Winner _ -> True
+        _ -> False
 
 runGame :: StateT Board IO ()
 runGame = do
@@ -112,7 +142,7 @@ runGame = do
             placePlayer O
             board' <- get
             case analyze board' of
-                Winner _ -> liftIO $ putStrLn "Congrats player O. You won!"
+                Winner _ -> liftIO $ putStrLn "The computer won."
                 Tie -> liftIO $ putStrLn "The game was a tie."
                 Unfinished -> runGame
 
