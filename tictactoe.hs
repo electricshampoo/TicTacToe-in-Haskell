@@ -25,7 +25,7 @@ data GameState = Winner Player | Unfinished | Tie
 initialBoard :: Board
 initialBoard = let row = Triple Nothing Nothing Nothing in Triple row row row
 
-allFilled :: Board -> Bool
+allFilled :: Eq a => Triple (Triple (Maybe a)) -> Bool
 allFilled (Triple r1 r2 r3) = allFilled' r1 && allFilled' r2 && allFilled' r3
     where allFilled' (Triple (Just _) (Just _) (Just _)) = True
           allFilled' _ = False
@@ -64,7 +64,7 @@ getItem 1 (Triple _ b _) = b
 getItem 2 (Triple _ _ c) = c
 getItem n _ = error $ "This cannot happen: getItem " ++ show n
 
-index :: Index -> Board -> Maybe Player
+index :: Index -> Triple (Triple a) -> a
 index (r,c) = getItem c . getItem r
 
 place :: Index -> Player -> Board -> Board
@@ -112,7 +112,7 @@ placePlayer O = do
         x:_ -> x
         [] -> case winningPositions (otherPlayer player) board of
             x:_ -> x
-            --Go in the middle whenever you can. This is a guaranteed tie unless the
+            --Go in the middle whenever you can. This results in a guaranteed tie unless the
             --other person messes up.
             --
             --Using head is safe here because if the board was full then we wouldn't
