@@ -10,6 +10,7 @@ data Player = X | O
     deriving (Eq, Show)
 
 data Triple a = Triple a a a
+    deriving (Show, Eq)
 
 toList :: Triple a -> [a]
 toList (Triple a b c) = [a,b,c]
@@ -21,6 +22,7 @@ type Board = Triple (Triple (Maybe Player))
 type Index = (Word, Word)
 
 data GameState = Winner Player | Unfinished | Tie
+    deriving (Eq)
 
 initialBoard :: Board
 initialBoard = let row = Triple Nothing Nothing Nothing in Triple row row row
@@ -50,6 +52,12 @@ triplets = [Triple (0,0) (0,1) (0,2)
            ,Triple (0,0) (1,1) (2,2)
            ,Triple (0,2) (1,1) (2,0)
            ]
+
+allSpots :: [Index]
+allSpots = nub $ concatMap toList triplets
+
+openSpots :: Board -> [Index]
+openSpots board = filter (\x -> isNothing $ index x board) allSpots
 
 printBoard :: Board -> IO ()
 printBoard = putStrLn . intercalate "\n" . toList . fmap (toList . printRow)
@@ -103,33 +111,64 @@ placePlayer X = do
     board <- get
     (r,c) <- liftIO $ getPlayerInput board X
     modify' $ place (r,c) X
-
 placePlayer O = do
     board <- get
-    modify' $ place (suggestMove O board) O where
+    modify' $ place (suggestMove O board) O
 
-    suggestMove player board = case winningPositions player board of
+suggestMove :: Player -> Board -> Index
+suggestMove player board = case winningPositions player board of
+    x:_ -> x
+    [] -> case winningPositions (otherPlayer player) board of
         x:_ -> x
-        [] -> case winningPositions (otherPlayer player) board of
-            x:_ -> x
-            --Go in the middle whenever you can. This results in a guaranteed tie unless the
-            --other person messes up.
-            --
-            --Using head is safe here because if the board was full then we wouldn't
-            --have called this function.
-            [] ->  if isNothing $ index (1,1) board then (1,1) else head $ openSpots board
-        where
-            otherPlayer X = O
-            otherPlayer O = X
+        --Go in the middle whenever you can. This results in a guaranteed tie unless the
+        --other person messes up.
+        --
+        --Using head is safe here because if the board was full then we wouldn't
+        --have called this function.
+        [] ->  case lookup board specialCases of
+            Just x -> x
+            Nothing -> if isNothing $ index (1,1) board then (1,1) else head $ openSpots board
+    where
+        otherPlayer X = O
+        otherPlayer O = X
 
-    winningPositions player board = map fst . filter f . map (\x -> (x, place x player board)) . openSpots $ board where
-        f (_, board') = case analyze board' of
-            Winner _ -> True
-            _ -> False
+        winningPositions player' board' = filter (\ix -> (== Winner player') . analyze $ place ix player' board')
+                                        . openSpots $ board'
 
-    allSpots = nub $ concatMap toList triplets
+        specialCases = [(Triple (Triple (Just X) (Just O) Nothing)
+                                (Triple Nothing  (Just O) (Just X))
+                                (Triple Nothing  (Just X) Nothing), (2,0))
+                       ,(Triple (Triple (Just X) Nothing Nothing)
+                                (Triple Nothing  (Just O) Nothing)
+                                (Triple Nothing  (Just X) Nothing), (2,0))
+                       ,(Triple (Triple Nothing  Nothing (Just X))
+                                (Triple Nothing  (Just O) Nothing)
+                                (Triple (Just X) Nothing  Nothing), (1,0))
+                       ,(Triple (Triple Nothing  Nothing  (Just X))
+                                (Triple Nothing  (Just O) Nothing)
+                                (Triple Nothing  (Just X) Nothing), (1,0))
+                       ,(Triple (Triple (Just O) Nothing  Nothing)
+                                (Triple Nothing  (Just X) Nothing)
+                                (Triple Nothing  Nothing (Just X)), (0,2))
+                       ,(Triple (Triple Nothing Nothing  Nothing)
+                                (Triple Nothing (Just O) (Just X))
+                                (Triple (Just X) Nothing  Nothing), (2,2))
+                       ,(Triple (Triple Nothing Nothing  Nothing)
+                                (Triple Nothing (Just O) (Just X))
+                                (Triple Nothing (Just X) Nothing), (2,2))
+                       ]
 
-    openSpots board = filter (\x -> isNothing $ index x board) allSpots
+--proof that the AI never loses
+testAll :: Bool
+testAll = testHere initialBoard where
+    testHere board
+        | Just O == winner board = True
+        | null placements = True
+        | otherwise = all (not . computerLost) placements && 
+                      (all testHere . map makeMove . filter (not . allFilled) $ placements) where
+            placements = map (\x -> place x X board) $ openSpots board
+            computerLost = (== Just X) . winner 
+            makeMove board' = place (suggestMove O board') O board'
 
 runGame :: StateT Board IO ()
 runGame = do
